@@ -40,26 +40,38 @@ func intervalLabel(min int) string {
 	return fmt.Sprintf("%d min", min)
 }
 
+// sourcesStoreLabel devuelve las tiendas de una lista de fuentes sin repetir.
+func sourcesStoreLabel(sources []Source) string {
+	seen := make(map[string]bool, len(sources))
+	var labels []string
+	for _, s := range sources {
+		if s.Store == "" || seen[s.Store] {
+			continue
+		}
+		seen[s.Store] = true
+		labels = append(labels, StoreLabel(s.Store))
+	}
+	return strings.Join(labels, ", ")
+}
+
 // productStatusLine formatea una línea con el estado de un producto.
 func productStatusLine(p Product) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s\n", p.LastStatus.Emoji(), p.Name)
-	fmt.Fprintf(&b, "   🏪 %s · cada %s\n", StoreLabel(p.Store), intervalLabel(p.IntervalMin))
-	if p.LastError != "" {
-		fmt.Fprintf(&b, "   ⚠️ Error: %s\n", p.LastError)
-	} else {
-		if !p.LastChecked.IsZero() {
-			fmt.Fprintf(&b, "   🕐 %s", p.LastChecked.Format("02/01 15:04"))
-		} else {
-			b.WriteString("   🕐 sin comprobar")
+	fmt.Fprintf(&b, "   🏪 %s · cada %s\n", sourcesStoreLabel(p.Sources), intervalLabel(p.IntervalMin))
+	for _, s := range p.Sources {
+		fmt.Fprintf(&b, "   %s %s", s.LastStatus.Emoji(), StoreLabel(s.Store))
+		if s.LastError != "" {
+			fmt.Fprintf(&b, " · ⚠️ %s", s.LastError)
+		} else if s.LastDetail != "" {
+			fmt.Fprintf(&b, " · %s", s.LastDetail)
 		}
-		if p.LastDetail != "" {
-			fmt.Fprintf(&b, " · %s", p.LastDetail)
+		if !s.LastChecked.IsZero() {
+			fmt.Fprintf(&b, " · %s", s.LastChecked.Format("02/01 15:04"))
 		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "\n   %s\n", s.URL)
 	}
-	fmt.Fprintf(&b, "   %s", p.URL)
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // formatStatusReport genera el informe de estado de una lista de productos.
@@ -81,10 +93,12 @@ func formatStatusReport(products []Product) string {
 func formatProductDetail(p Product) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "✏️ Editando: %s\n\n", p.Name)
-	fmt.Fprintf(&b, "Tienda: %s\n", StoreLabel(p.Store))
+	fmt.Fprintf(&b, "Tiendas: %s\n", sourcesStoreLabel(p.Sources))
 	fmt.Fprintf(&b, "Intervalo: %s\n", intervalLabel(p.IntervalMin))
 	fmt.Fprintf(&b, "Estado: %s %s\n", p.LastStatus.Emoji(), p.LastStatus)
-	fmt.Fprintf(&b, "URL: %s\n", p.URL)
+	for _, s := range p.Sources {
+		fmt.Fprintf(&b, "• %s: %s\n", StoreLabel(s.Store), s.URL)
+	}
 	return b.String()
 }
 

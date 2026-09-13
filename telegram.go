@@ -25,6 +25,8 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 		b.showMainMenu(config)
 	case "add", "set":
 		b.startAdd(config)
+	case "addurl_done":
+		b.finishAddURLs(config)
 	case "list":
 		b.showProductList(config)
 	case "check":
@@ -42,7 +44,8 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo nombre del producto:")
 	case "ef_url":
 		config.BotState = StateEditURL
-		sendMessage(b.api, config.ChatID, "✏️ Envía la nueva URL del producto:")
+		sendMessage(b.api, config.ChatID,
+			"✏️ Envía la nueva URL del producto (o varias separadas por espacios).\n\nTiendas soportadas: "+SupportedStoresList())
 	case "ef_interval":
 		config.BotState = StateEditInterval
 		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos (ej: 5):")
@@ -76,23 +79,26 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 			return
 		}
 		config.TempName = text
+		config.TempSources = nil
 		config.BotState = StateAddURL
 		sendMessage(b.api, config.ChatID,
-			"2/3 · Envía la URL del producto.\n\nTiendas soportadas: "+SupportedStoresList())
+			"2/3 · Envía una o varias URLs del producto.\n"+
+				"Puedes añadirlas en varias tiendas y recibirás una sola notificación.\n"+
+				"Envía las URLs una a una o varias separadas por espacios y pulsa ✅ Listo.\n\n"+
+				"Tiendas soportadas: "+SupportedStoresList())
 
 	case StateAddURL:
-		store, err := DetectStore(text)
-		if err != nil {
-			sendMessage(b.api, config.ChatID,
-				"⚠️ "+err.Error()+"\n\nTiendas soportadas: "+SupportedStoresList())
+		added, problems := addTempSources(config, text)
+		if added == 0 {
+			msg := "⚠️ No se añadió ninguna URL."
+			if len(problems) > 0 {
+				msg += "\n\n" + strings.Join(problems, "\n")
+			}
+			msg += "\n\nTiendas soportadas: " + SupportedStoresList()
+			sendMessage(b.api, config.ChatID, msg)
 			return
 		}
-		config.TempURL = text
-		config.TempStore = store.Key
-		config.BotState = StateAddInterval
-		sendMessage(b.api, config.ChatID, fmt.Sprintf(
-			"3/3 · ¿Cada cuántos minutos quieres comprobarlo? (ej: 5)\n\nTienda detectada: %s",
-			store.Label))
+		b.showAddURLSummary(config, problems)
 
 	case StateAddInterval:
 		min, err := parseInterval(text)
@@ -100,10 +106,11 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 			sendMessage(b.api, config.ChatID, "⚠️ "+err.Error())
 			return
 		}
+		sources := make([]Source, len(config.TempSources))
+		copy(sources, config.TempSources)
 		config.Products = append(config.Products, Product{
 			Name:        config.TempName,
-			URL:         config.TempURL,
-			Store:       config.TempStore,
+			Sources:     sources,
 			IntervalMin: min,
 			LastStatus:  StatusUnknown,
 			NextRun:     time.Now(),
@@ -124,18 +131,17 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 		b.showEditMenu(config)
 
 	case StateEditURL:
-		store, err := DetectStore(text)
+		sources, err := parseSources(text)
 		if err != nil {
 			sendMessage(b.api, config.ChatID,
 				"⚠️ "+err.Error()+"\n\nTiendas soportadas: "+SupportedStoresList())
 			return
 		}
 		if config.inRange() {
-			config.Products[config.EditIndex].URL = text
-			config.Products[config.EditIndex].Store = store.Key
+			config.Products[config.EditIndex].Sources = sources
 			config.Products[config.EditIndex].NextRun = time.Now()
 			saveProducts(config)
-			sendMessage(b.api, config.ChatID, "✅ URL actualizada.")
+			sendMessage(b.api, config.ChatID, "✅ URLs actualizadas.")
 		}
 		config.BotState = StateIdle
 		b.showEditMenu(config)
@@ -193,9 +199,93 @@ func (b *Bot) startAdd(config *UserConfig) {
 
 func resetTemp(config *UserConfig) {
 	config.TempName = ""
-	config.TempURL = ""
-	config.TempStore = ""
+	config.TempSources = nil
 	config.TempInterval = 0
+}
+
+// addTempSources añade a las fuentes temporales las URLs del texto. Devuelve
+// cuántas se añadieron y los problemas de las que no se pudieron detectar.
+func addTempSources(config *UserConfig, text string) (int, []string) {
+	seen := make(map[string]bool, len(config.TempSources))
+	for _, s := range config.TempSources {
+		seen[s.URL] = true
+	}
+	var added int
+	var problems []string
+	for _, raw := range strings.Fields(text) {
+		store, err := DetectStore(raw)
+		if err != nil {
+			problems = append(problems, "⚠️ "+err.Error())
+			continue
+		}
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		config.TempSources = append(config.TempSources, Source{URL: raw, Store: store.Key})
+		added++
+	}
+	return added, problems
+}
+
+// parseSources convierte texto (una o varias URLs) en fuentes válidas.
+func parseSources(text string) ([]Source, error) {
+	var sources []Source
+	seen := make(map[string]bool)
+	var firstErr error
+	for _, raw := range strings.Fields(text) {
+		store, err := DetectStore(raw)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		sources = append(sources, Source{URL: raw, Store: store.Key})
+	}
+	if len(sources) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("no se encontró ninguna URL válida")
+	}
+	return sources, nil
+}
+
+// showAddURLSummary muestra las URLs acumuladas y el botón para continuar.
+func (b *Bot) showAddURLSummary(config *UserConfig, problems []string) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🔗 URLs añadidas (%d):\n", len(config.TempSources))
+	for _, s := range config.TempSources {
+		fmt.Fprintf(&sb, "• %s · %s\n", StoreLabel(s.Store), s.URL)
+	}
+	if len(problems) > 0 {
+		sb.WriteString("\n" + strings.Join(problems, "\n") + "\n")
+	}
+	sb.WriteString("\nEnvía más URLs o pulsa ✅ Listo para continuar.")
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Listo", "addurl_done"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "menu"),
+		),
+	)
+	sendKeyboard(b.api, config.ChatID, sb.String(), keyboard)
+}
+
+// finishAddURLs avanza al paso del intervalo una vez recogidas las URLs.
+func (b *Bot) finishAddURLs(config *UserConfig) {
+	if len(config.TempSources) == 0 {
+		sendMessage(b.api, config.ChatID, "⚠️ Añade al menos una URL antes de continuar.")
+		return
+	}
+	config.BotState = StateAddInterval
+	sendMessage(b.api, config.ChatID, fmt.Sprintf(
+		"3/3 · ¿Cada cuántos minutos quieres comprobarlo? (ej: 5)\n\nTiendas: %s",
+		sourcesStoreLabel(config.TempSources)))
 }
 
 // --- Listados y menús ---
@@ -292,7 +382,7 @@ func (b *Bot) showEditMenu(config *UserConfig) {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🏷 Nombre", "ef_name"),
-			tgbotapi.NewInlineKeyboardButtonData("🔗 URL", "ef_url"),
+			tgbotapi.NewInlineKeyboardButtonData("🔗 URLs", "ef_url"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⏱ Intervalo", "ef_interval"),

@@ -48,19 +48,61 @@ type CheckResult struct {
 	Detail string
 }
 
-// Product es un producto vigilado por un usuario.
-type Product struct {
-	Name        string    `json:"name"`
+// Source es una URL concreta de una tienda para un producto. Un mismo
+// producto puede vigilarse en varias tiendas a la vez y se notifica una sola
+// vez cuando cualquiera de ellas lo tiene disponible.
+type Source struct {
 	URL         string    `json:"url"`
 	Store       string    `json:"store"`
+	LastStatus  Status    `json:"last_status"`
+	LastChecked time.Time `json:"last_checked"`
+	LastDetail  string    `json:"last_detail,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
+}
+
+// Product es un producto vigilado por un usuario. Puede tener una o varias
+// fuentes (URLs en distintas tiendas).
+type Product struct {
+	Name        string    `json:"name"`
+	Sources     []Source  `json:"sources"`
 	IntervalMin int       `json:"interval_min"`
 	LastStatus  Status    `json:"last_status"`
 	LastChecked time.Time `json:"last_checked"`
 	LastDetail  string    `json:"last_detail,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
 
+	// Campos heredados de versiones con una sola URL. Solo se usan para
+	// migrar datos antiguos al cargar.
+	URL   string `json:"url,omitempty"`
+	Store string `json:"store,omitempty"`
+
 	// NextRun se calcula en runtime y no se persiste.
 	NextRun time.Time `json:"-"`
+}
+
+// StoreKeys devuelve las claves de tienda del producto sin repetir.
+func (p Product) StoreKeys() []string {
+	seen := make(map[string]bool, len(p.Sources))
+	var keys []string
+	for _, s := range p.Sources {
+		if s.Store == "" || seen[s.Store] {
+			continue
+		}
+		seen[s.Store] = true
+		keys = append(keys, s.Store)
+	}
+	return keys
+}
+
+// SourcesInStock devuelve las fuentes disponibles ahora mismo.
+func (p Product) SourcesInStock() []Source {
+	var in []Source
+	for _, s := range p.Sources {
+		if s.LastStatus == StatusInStock {
+			in = append(in, s)
+		}
+	}
+	return in
 }
 
 // UserConfig agrupa todo el estado runtime de un usuario del bot.
@@ -75,8 +117,7 @@ type UserConfig struct {
 
 	// Campos temporales usados durante el asistente de alta.
 	TempName     string
-	TempURL      string
-	TempStore    string
+	TempSources  []Source
 	TempInterval int
 
 	EditIndex int

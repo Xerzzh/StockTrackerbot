@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestSaveAndLoadProducts(t *testing.T) {
 	oldDir := configDir
@@ -10,8 +13,8 @@ func TestSaveAndLoadProducts(t *testing.T) {
 	original := &UserConfig{
 		ChatID: 42,
 		Products: []Product{
-			{Name: "Switch 2", URL: "https://www.game.es/x", Store: "game", IntervalMin: 5, LastStatus: StatusOutOfStock},
-			{Name: "Zelda", URL: "https://www.amazon.es/dp/B0", Store: "amazon", IntervalMin: 10},
+			{Name: "Switch 2", Sources: []Source{{URL: "https://www.game.es/x", Store: "game"}}, IntervalMin: 5, LastStatus: StatusOutOfStock},
+			{Name: "Zelda", Sources: []Source{{URL: "https://www.amazon.es/dp/B0", Store: "amazon"}}, IntervalMin: 10},
 		},
 	}
 	saveProducts(original)
@@ -22,7 +25,8 @@ func TestSaveAndLoadProducts(t *testing.T) {
 	if len(loaded.Products) != 2 {
 		t.Fatalf("se cargaron %d productos, want 2", len(loaded.Products))
 	}
-	if loaded.Products[0].Name != "Switch 2" || loaded.Products[0].Store != "game" {
+	if loaded.Products[0].Name != "Switch 2" || len(loaded.Products[0].Sources) != 1 ||
+		loaded.Products[0].Sources[0].Store != "game" {
 		t.Errorf("producto 0 inesperado: %+v", loaded.Products[0])
 	}
 	if loaded.Products[0].LastStatus != StatusOutOfStock {
@@ -30,6 +34,31 @@ func TestSaveAndLoadProducts(t *testing.T) {
 	}
 	if loaded.Products[1].IntervalMin != 10 {
 		t.Errorf("IntervalMin no persistido: %d", loaded.Products[1].IntervalMin)
+	}
+}
+
+func TestLoadProductsMigratesLegacyURL(t *testing.T) {
+	oldDir := configDir
+	configDir = t.TempDir()
+	defer func() { configDir = oldDir }()
+
+	legacy := []byte(`{"products":[{"name":"Switch 2","url":"https://www.game.es/x","store":"game","interval_min":5}]}`)
+	if err := os.WriteFile(productsPath(7), legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := &UserConfig{ChatID: 7}
+	loadProducts(loaded)
+
+	if len(loaded.Products) != 1 {
+		t.Fatalf("se cargaron %d productos, want 1", len(loaded.Products))
+	}
+	p := loaded.Products[0]
+	if len(p.Sources) != 1 || p.Sources[0].URL != "https://www.game.es/x" || p.Sources[0].Store != "game" {
+		t.Fatalf("migración de URL antigua incorrecta: %+v", p)
+	}
+	if p.URL != "" || p.Store != "" {
+		t.Fatalf("los campos heredados deberían limpiarse: %+v", p)
 	}
 }
 

@@ -52,5 +52,18 @@ func loadProducts(config *UserConfig) {
 		log.Printf("❌ Error parseando productos del usuario %d: %v", config.ChatID, err)
 		return
 	}
+	for i := range storage.Products {
+		storage.Products[i].migrateLegacy()
+	}
 	config.Products = storage.Products
+}
+
+// migrateLegacy convierte un producto antiguo con una sola URL en uno con una
+// única fuente, y limpia los campos heredados.
+func (p *Product) migrateLegacy() {
+	if len(p.Sources) == 0 && p.URL != "" {
+		p.Sources = []Source{{URL: p.URL, Store: p.Store}}
+	}
+	p.URL = ""
+	p.Store = ""
 }

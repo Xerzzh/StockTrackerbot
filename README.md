@@ -24,17 +24,21 @@ choose how often it should be checked. No config files to edit by hand.
 
 ## How it works
 
-1. Each user has a list of watched products. A product is `{name, url, store, interval}`.
+1. Each user has a list of watched products. A product is
+   `{name, sources, interval}`, where `sources` is one or more URLs from the
+   supported stores. Adding several stores to the same product avoids duplicate
+   notifications.
 2. When the monitor is running, a goroutine per user ticks every 30 seconds and
-   checks only the products whose own interval has elapsed.
+   checks only the products whose own interval has elapsed. Every source of a
+   product is checked independently.
 3. Each check dispatches to the store-specific checker, which returns one of:
    - 🟢 **Available** — an add-to-cart / buy button was found.
    - 🔴 **Out of stock** — an explicit out-of-stock message was found (or, for
      Amazon, no buy button at all).
    - ⚪ **Unknown** — the page could not be interpreted (CAPTCHA, network error…).
 4. The status is persisted and compared with the previous one. When a product
-   **transitions to available**, a Telegram notification is sent with an
-   *Open product* button.
+   **transitions to available** in any of its stores, a single Telegram
+   notification is sent with an *Open* button per available store.
 5. State survives restarts: products live in `config/products_<chatID>.json`.
 
 ## Requirements
@@ -100,7 +104,7 @@ Open a chat with your bot and send `/menu`.
 | Command | Description |
 | --- | --- |
 | `/menu` | Main menu with inline buttons. |
-| `/add` | Add a product: **name → URL → interval (minutes)**. The store is detected from the URL. |
+| `/add` | Add a product: **name → URLs → interval (minutes)**. Send one or several URLs (from different stores) and press **Listo**; the store is detected from each URL. |
 | `/list` | Show all products with their last status and evidence. |
 | `/check` | Check all products immediately. |
 | `/startbot` | Start the periodic monitor. |
@@ -118,12 +122,14 @@ Open a chat with your bot and send `/menu`.
 /add
 > Switch 2 Zelda
 > https://www.game.es/nintendo-switch-2-edicion-zelda-40th-nintendo-switch-2-267689
+> https://www.amazon.es/dp/B0F2TN43GH
+> [✅ Listo]
 > 5
 /startbot
 ```
 
-From then on, the bot checks that URL every 5 minutes and messages you the
-moment it becomes available.
+From then on, the bot checks all those URLs every 5 minutes and messages you
+once the moment the product becomes available in any of them.
 
 ## Persistence and data files
 

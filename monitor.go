@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,21 +69,24 @@ func (b *Bot) checkUserProducts(config *UserConfig, force bool) []Product {
 		return b.snapshotProducts(config)
 	}
 
-	outcomes := make([]checkOutcome, len(jobs))
+	outcomes := make([][]checkOutcome, len(jobs))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, checkConcurrency)
 	for i, job := range jobs {
-		wg.Add(1)
-		go func(i int, job checkJob) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		outcomes[i] = make([]checkOutcome, len(job.product.Sources))
+		for j, src := range job.product.Sources {
+			wg.Add(1)
+			go func(i, j int, src Source) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
 
-			ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
-			defer cancel()
-			res, err := CheckProduct(ctx, b.fetcher, job.product.URL)
-			outcomes[i] = checkOutcome{result: res, err: err}
-		}(i, job)
+				ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+				defer cancel()
+				res, err := CheckProduct(ctx, b.fetcher, src.URL)
+				outcomes[i][j] = checkOutcome{result: res, err: err}
+			}(i, j, src)
+		}
 	}
 	wg.Wait()
 
@@ -113,32 +117,60 @@ func (b *Bot) pickDueProducts(config *UserConfig, force bool) []checkJob {
 }
 
 // applyOutcomes vuelca los resultados en el estado del usuario, persiste y
-// envía las notificaciones de disponibilidad.
-func (b *Bot) applyOutcomes(config *UserConfig, jobs []checkJob, outcomes []checkOutcome) []Product {
+// envía las notificaciones de disponibilidad. Cada producto se comprueba en
+// todas sus tiendas y se notifica una sola vez si alguna está disponible.
+func (b *Bot) applyOutcomes(config *UserConfig, jobs []checkJob, outcomes [][]checkOutcome) []Product {
 	config.Mutex.Lock()
 	var notifications []Product
+	now := time.Now()
 	for i, job := range jobs {
 		if job.index < 0 || job.index >= len(config.Products) {
 			continue
 		}
 		p := &config.Products[job.index]
 		previous := p.LastStatus
-		p.LastChecked = time.Now()
+		p.LastChecked = now
 
-		if outcomes[i].err != nil {
-			p.LastError = outcomes[i].err.Error()
-			p.LastStatus = StatusUnknown
-			p.LastDetail = ""
-			log.Printf("[User %d] ❌ %s: %v", config.ChatID, p.Name, outcomes[i].err)
-			continue
+		aggregate := StatusUnknown
+		detail := ""
+		var lastErr string
+		for j := range p.Sources {
+			src := &p.Sources[j]
+			src.LastChecked = now
+
+			if j >= len(outcomes[i]) {
+				continue
+			}
+			if outcomes[i][j].err != nil {
+				src.LastError = outcomes[i][j].err.Error()
+				src.LastStatus = StatusUnknown
+				src.LastDetail = ""
+				lastErr = src.LastError
+				log.Printf("[User %d] ❌ %s (%s): %v",
+					config.ChatID, p.Name, StoreLabel(src.Store), outcomes[i][j].err)
+				continue
+			}
+
+			src.LastError = ""
+			src.LastStatus = outcomes[i][j].result.Status
+			src.LastDetail = outcomes[i][j].result.Detail
+			log.Printf("[User %d] %s %s (%s) %s",
+				config.ChatID, src.LastStatus.Emoji(), p.Name, StoreLabel(src.Store), src.LastDetail)
+
+			switch {
+			case src.LastStatus == StatusInStock && aggregate != StatusInStock:
+				aggregate = StatusInStock
+				detail = src.LastDetail
+			case src.LastStatus == StatusOutOfStock && aggregate == StatusUnknown:
+				aggregate = StatusOutOfStock
+			}
 		}
 
-		p.LastError = ""
-		p.LastStatus = outcomes[i].result.Status
-		p.LastDetail = outcomes[i].result.Detail
-		log.Printf("[User %d] %s %s (%s)", config.ChatID, p.LastStatus.Emoji(), p.Name, p.LastDetail)
+		p.LastError = lastErr
+		p.LastStatus = aggregate
+		p.LastDetail = detail
 
-		if p.LastStatus == StatusInStock && previous != StatusInStock {
+		if aggregate == StatusInStock && previous != StatusInStock {
 			notifications = append(notifications, *p)
 		}
 	}
@@ -162,18 +194,28 @@ func (b *Bot) snapshotProducts(config *UserConfig) []Product {
 	return snapshot
 }
 
-// sendStockNotification avisa al usuario de que un producto está disponible.
+// sendStockNotification avisa al usuario de que un producto está disponible en
+// una o varias de sus tiendas. Se envía una sola notificación por producto.
 func (b *Bot) sendStockNotification(chatID int64, p Product) {
-	text := fmt.Sprintf("🎉 ¡DISPONIBLE!\n\n📦 %s\n🏪 %s\n🔎 %s\n\n%s",
-		p.Name, StoreLabel(p.Store), p.LastDetail, p.URL)
+	available := p.SourcesInStock()
+	if len(available) == 0 {
+		return
+	}
 
-	msg := tgbotapi.NewMessage(chatID, text)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🎉 ¡DISPONIBLE!\n\n📦 %s\n", p.Name)
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, s := range available {
+		label := StoreLabel(s.Store)
+		fmt.Fprintf(&sb, "\n🏪 %s\n🔎 %s\n%s\n", label, s.LastDetail, s.URL)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🛒 Abrir en "+label, s.URL),
+		))
+	}
+
+	msg := tgbotapi.NewMessage(chatID, sb.String())
 	msg.DisableWebPagePreview = true
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🛒 Abrir producto", p.URL),
-		),
-	)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("❌ Error enviando notificación a %d: %v", chatID, err)
 	}
