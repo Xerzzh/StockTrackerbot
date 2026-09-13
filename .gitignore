@@ -1,0 +1,26 @@
+# Secretos / entorno
+.env
+*.env.local
+*.env.*.local
+
+# Binario compilado
+stocktrackerbot
+
+# Estado en tiempo de ejecución
+config/
+*.tmp
+
+# Cobertura de tests
+*.out
+coverage.html
+coverage.txt
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editores / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
