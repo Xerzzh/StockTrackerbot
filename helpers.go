@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -29,15 +30,22 @@ func sendKeyboard(bot *tgbotapi.BotAPI, chatID int64, text string, markup tgbota
 	}
 }
 
-// intervalLabel formatea un intervalo en minutos.
-func intervalLabel(min int) string {
-	if min <= 0 {
+// intervalLabel formatea un intervalo en minutos o segundos.
+func intervalLabel(d time.Duration) string {
+	if d <= 0 {
 		return "sin intervalo"
 	}
-	if min == 1 {
-		return "1 min"
+	if d%time.Minute == 0 {
+		min := int(d / time.Minute)
+		if min == 1 {
+			return "1 min"
+		}
+		return fmt.Sprintf("%d min", min)
 	}
-	return fmt.Sprintf("%d min", min)
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%d s", int(d/time.Second))
+	}
+	return d.String()
 }
 
 // sourcesStoreLabel devuelve las tiendas de una lista de fuentes sin repetir.
@@ -58,7 +66,7 @@ func sourcesStoreLabel(sources []Source) string {
 func productStatusLine(p Product) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s\n", p.LastStatus.Emoji(), p.Name)
-	fmt.Fprintf(&b, "   🏪 %s · cada %s\n", sourcesStoreLabel(p.Sources), intervalLabel(p.IntervalMin))
+	fmt.Fprintf(&b, "   🏪 %s · cada %s\n", sourcesStoreLabel(p.Sources), intervalLabel(p.Interval()))
 	for _, s := range p.Sources {
 		fmt.Fprintf(&b, "   %s %s", s.LastStatus.Emoji(), StoreLabel(s.Store))
 		if s.LastError != "" {
@@ -94,7 +102,7 @@ func formatProductDetail(p Product) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "✏️ Editando: %s\n\n", p.Name)
 	fmt.Fprintf(&b, "Tiendas: %s\n", sourcesStoreLabel(p.Sources))
-	fmt.Fprintf(&b, "Intervalo: %s\n", intervalLabel(p.IntervalMin))
+	fmt.Fprintf(&b, "Intervalo: %s\n", intervalLabel(p.Interval()))
 	fmt.Fprintf(&b, "Estado: %s %s\n", p.LastStatus.Emoji(), p.LastStatus)
 	for _, s := range p.Sources {
 		fmt.Fprintf(&b, "• %s: %s\n", StoreLabel(s.Store), s.URL)
@@ -102,17 +110,53 @@ func formatProductDetail(p Product) string {
 	return b.String()
 }
 
-// parseInterval valida y convierte el texto del intervalo.
-func parseInterval(text string) (int, error) {
-	n, err := strconv.Atoi(strings.TrimSpace(text))
+// parseInterval valida y convierte el texto del intervalo. Acepta un número
+// (interpretado como minutos) o una duración con sufijo de segundos o minutos:
+// 30s, 30seg, 30segundos, 2m, 2min, 2minutos.
+func parseInterval(text string) (time.Duration, error) {
+	s := strings.ToLower(strings.TrimSpace(text))
+	s = strings.ReplaceAll(s, " ", "")
+	if s == "" {
+		return 0, fmt.Errorf("introduce un intervalo válido (ej: 5, 2m, 30s)")
+	}
+
+	unit := time.Minute
+	switch {
+	case strings.HasSuffix(s, "minutos"):
+		s, unit = strings.TrimSuffix(s, "minutos"), time.Minute
+	case strings.HasSuffix(s, "minuto"):
+		s, unit = strings.TrimSuffix(s, "minuto"), time.Minute
+	case strings.HasSuffix(s, "mins"):
+		s, unit = strings.TrimSuffix(s, "mins"), time.Minute
+	case strings.HasSuffix(s, "min"):
+		s, unit = strings.TrimSuffix(s, "min"), time.Minute
+	case strings.HasSuffix(s, "m"):
+		s, unit = strings.TrimSuffix(s, "m"), time.Minute
+	case strings.HasSuffix(s, "segundos"):
+		s, unit = strings.TrimSuffix(s, "segundos"), time.Second
+	case strings.HasSuffix(s, "segundo"):
+		s, unit = strings.TrimSuffix(s, "segundo"), time.Second
+	case strings.HasSuffix(s, "segs"):
+		s, unit = strings.TrimSuffix(s, "segs"), time.Second
+	case strings.HasSuffix(s, "seg"):
+		s, unit = strings.TrimSuffix(s, "seg"), time.Second
+	case strings.HasSuffix(s, "s"):
+		s, unit = strings.TrimSuffix(s, "s"), time.Second
+	}
+
+	n, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, fmt.Errorf("introduce un número de minutos válido")
+		return 0, fmt.Errorf("introduce un intervalo válido (ej: 5, 2m, 30s)")
 	}
 	if n <= 0 {
 		return 0, fmt.Errorf("el intervalo debe ser mayor que 0")
 	}
-	if n > 1440 {
-		return 0, fmt.Errorf("el intervalo máximo es 1440 minutos (24 h)")
+	d := time.Duration(n) * unit
+	if d < minInterval {
+		return 0, fmt.Errorf("el intervalo mínimo es %s", intervalLabel(minInterval))
 	}
-	return n, nil
+	if d > maxInterval {
+		return 0, fmt.Errorf("el intervalo máximo es %s", intervalLabel(maxInterval))
+	}
+	return d, nil
 }

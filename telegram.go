@@ -48,7 +48,7 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 			"✏️ Envía la nueva URL del producto (o varias separadas por espacios).\n\nTiendas soportadas: "+SupportedStoresList())
 	case "ef_interval":
 		config.BotState = StateEditInterval
-		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos (ej: 5):")
+		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos o segundos (ej: 5, 2m, 30s):")
 	case "admin_add":
 		if config.ChatID == adminChatID {
 			config.BotState = StateAdminAddUser
@@ -101,7 +101,7 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 		b.showAddURLSummary(config, problems)
 
 	case StateAddInterval:
-		min, err := parseInterval(text)
+		interval, err := parseInterval(text)
 		if err != nil {
 			sendMessage(b.api, config.ChatID, "⚠️ "+err.Error())
 			return
@@ -111,7 +111,7 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 		config.Products = append(config.Products, Product{
 			Name:        config.TempName,
 			Sources:     sources,
-			IntervalMin: min,
+			IntervalSec: int(interval / time.Second),
 			LastStatus:  StatusUnknown,
 			NextRun:     time.Now(),
 		})
@@ -147,14 +147,14 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 		b.showEditMenu(config)
 
 	case StateEditInterval:
-		min, err := parseInterval(text)
+		interval, err := parseInterval(text)
 		if err != nil {
 			sendMessage(b.api, config.ChatID, "⚠️ "+err.Error())
 			return
 		}
 		if config.inRange() {
-			config.Products[config.EditIndex].IntervalMin = min
-			config.Products[config.EditIndex].NextRun = time.Now().Add(time.Duration(min) * time.Minute)
+			config.Products[config.EditIndex].IntervalSec = int(interval / time.Second)
+			config.Products[config.EditIndex].NextRun = time.Now().Add(interval)
 			saveProducts(config)
 			sendMessage(b.api, config.ChatID, "✅ Intervalo actualizado.")
 		}
@@ -200,7 +200,7 @@ func (b *Bot) startAdd(config *UserConfig) {
 func resetTemp(config *UserConfig) {
 	config.TempName = ""
 	config.TempSources = nil
-	config.TempInterval = 0
+	config.TempIntervalSec = 0
 }
 
 // addTempSources añade a las fuentes temporales las URLs del texto. Devuelve
@@ -284,7 +284,7 @@ func (b *Bot) finishAddURLs(config *UserConfig) {
 	}
 	config.BotState = StateAddInterval
 	sendMessage(b.api, config.ChatID, fmt.Sprintf(
-		"3/3 · ¿Cada cuántos minutos quieres comprobarlo? (ej: 5)\n\nTiendas: %s",
+		"3/3 · ¿Cada cuánto quieres comprobarlo? (minutos o segundos; ej: 5, 2m, 30s)\n\nTiendas: %s",
 		sourcesStoreLabel(config.TempSources)))
 }
 

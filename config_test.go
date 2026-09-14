@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadConfigMissingToken(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
@@ -48,8 +51,20 @@ func TestParseInterval(t *testing.T) {
 	if _, err := parseInterval("99999"); err == nil {
 		t.Fatal("99999 supera el máximo")
 	}
+	if _, err := parseInterval("5s"); err == nil {
+		t.Fatal("5s está por debajo del mínimo")
+	}
 	got, err := parseInterval(" 5 ")
-	if err != nil || got != 5 {
-		t.Fatalf("parseInterval(5) = %d, %v", got, err)
+	if err != nil || got != 5*time.Minute {
+		t.Fatalf("parseInterval(5) = %v, %v", got, err)
+	}
+	if got, err := parseInterval("30s"); err != nil || got != 30*time.Second {
+		t.Fatalf("parseInterval(30s) = %v, %v", got, err)
+	}
+	if got, err := parseInterval("2m"); err != nil || got != 2*time.Minute {
+		t.Fatalf("parseInterval(2m) = %v, %v", got, err)
+	}
+	if got, err := parseInterval("90seg"); err != nil || got != 90*time.Second {
+		t.Fatalf("parseInterval(90seg) = %v, %v", got, err)
 	}
 }

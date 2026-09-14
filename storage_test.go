@@ -13,8 +13,8 @@ func TestSaveAndLoadProducts(t *testing.T) {
 	original := &UserConfig{
 		ChatID: 42,
 		Products: []Product{
-			{Name: "Switch 2", Sources: []Source{{URL: "https://www.game.es/x", Store: "game"}}, IntervalMin: 5, LastStatus: StatusOutOfStock},
-			{Name: "Zelda", Sources: []Source{{URL: "https://www.amazon.es/dp/B0", Store: "amazon"}}, IntervalMin: 10},
+			{Name: "Switch 2", Sources: []Source{{URL: "https://www.game.es/x", Store: "game"}}, IntervalSec: 300, LastStatus: StatusOutOfStock},
+			{Name: "Zelda", Sources: []Source{{URL: "https://www.amazon.es/dp/B0", Store: "amazon"}}, IntervalSec: 600},
 		},
 	}
 	saveProducts(original)
@@ -32,8 +32,8 @@ func TestSaveAndLoadProducts(t *testing.T) {
 	if loaded.Products[0].LastStatus != StatusOutOfStock {
 		t.Errorf("LastStatus no persistido: %v", loaded.Products[0].LastStatus)
 	}
-	if loaded.Products[1].IntervalMin != 10 {
-		t.Errorf("IntervalMin no persistido: %d", loaded.Products[1].IntervalMin)
+	if loaded.Products[1].IntervalSec != 600 {
+		t.Errorf("IntervalSec no persistido: %d", loaded.Products[1].IntervalSec)
 	}
 }
 
@@ -59,6 +59,9 @@ func TestLoadProductsMigratesLegacyURL(t *testing.T) {
 	}
 	if p.URL != "" || p.Store != "" {
 		t.Fatalf("los campos heredados deberían limpiarse: %+v", p)
+	}
+	if p.IntervalSec != 300 || p.IntervalMin != 0 {
+		t.Fatalf("migración de interval_min incorrecta: %+v", p)
 	}
 }
 

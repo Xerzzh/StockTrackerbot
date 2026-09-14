@@ -65,7 +65,7 @@ type Source struct {
 type Product struct {
 	Name        string    `json:"name"`
 	Sources     []Source  `json:"sources"`
-	IntervalMin int       `json:"interval_min"`
+	IntervalSec int       `json:"interval_sec"`
 	LastStatus  Status    `json:"last_status"`
 	LastChecked time.Time `json:"last_checked"`
 	LastDetail  string    `json:"last_detail,omitempty"`
@@ -76,8 +76,20 @@ type Product struct {
 	URL   string `json:"url,omitempty"`
 	Store string `json:"store,omitempty"`
 
+	// IntervalMin es el intervalo heredado (en minutos) de versiones
+	// anteriores. Solo se usa para migrar datos antiguos al cargar.
+	IntervalMin int `json:"interval_min,omitempty"`
+
 	// NextRun se calcula en runtime y no se persiste.
 	NextRun time.Time `json:"-"`
+}
+
+// Interval devuelve el intervalo efectivo de comprobación del producto.
+func (p Product) Interval() time.Duration {
+	if p.IntervalSec > 0 {
+		return time.Duration(p.IntervalSec) * time.Second
+	}
+	return defaultInterval
 }
 
 // StoreKeys devuelve las claves de tienda del producto sin repetir.
@@ -116,9 +128,9 @@ type UserConfig struct {
 	BotState    BotState
 
 	// Campos temporales usados durante el asistente de alta.
-	TempName     string
-	TempSources  []Source
-	TempInterval int
+	TempName        string
+	TempSources     []Source
+	TempIntervalSec int
 
 	EditIndex int
 

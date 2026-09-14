@@ -66,4 +66,8 @@ func (p *Product) migrateLegacy() {
 	}
 	p.URL = ""
 	p.Store = ""
+	if p.IntervalSec == 0 && p.IntervalMin > 0 {
+		p.IntervalSec = p.IntervalMin * 60
+	}
+	p.IntervalMin = 0
 }

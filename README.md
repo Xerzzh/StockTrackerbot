@@ -28,7 +28,7 @@ choose how often it should be checked. No config files to edit by hand.
    `{name, sources, interval}`, where `sources` is one or more URLs from the
    supported stores. Adding several stores to the same product avoids duplicate
    notifications.
-2. When the monitor is running, a goroutine per user ticks every 30 seconds and
+2. When the monitor is running, a goroutine per user ticks every few seconds and
    checks only the products whose own interval has elapsed. Every source of a
    product is checked independently.
 3. Each check dispatches to the store-specific checker, which returns one of:
@@ -104,7 +104,7 @@ Open a chat with your bot and send `/menu`.
 | Command | Description |
 | --- | --- |
 | `/menu` | Main menu with inline buttons. |
-| `/add` | Add a product: **name → URLs → interval (minutes)**. Send one or several URLs (from different stores) and press **Listo**; the store is detected from each URL. |
+| `/add` | Add a product: **name → URLs → interval (minutes or seconds)**. Send one or several URLs (from different stores) and press **Listo**; the store is detected from each URL. |
 | `/list` | Show all products with their last status and evidence. |
 | `/check` | Check all products immediately. |
 | `/startbot` | Start the periodic monitor. |
@@ -124,12 +124,14 @@ Open a chat with your bot and send `/menu`.
 > https://www.game.es/nintendo-switch-2-edicion-zelda-40th-nintendo-switch-2-267689
 > https://www.amazon.es/dp/B0F2TN43GH
 > [✅ Listo]
-> 5
+> 30s
 /startbot
 ```
 
-From then on, the bot checks all those URLs every 5 minutes and messages you
-once the moment the product becomes available in any of them.
+Intervals can be written as plain minutes (`5`), minutes (`2m`, `5min`) or
+seconds (`30s`, `90seg`). From then on, the bot checks all those URLs every 30
+seconds and messages you once the moment the product becomes available in any
+of them.
 
 ## Persistence and data files
 
@@ -173,6 +175,6 @@ it can be validated without network access.
   API or structured data cannot be scraped with plain HTTP.
 - Amazon may occasionally serve a CAPTCHA; those checks are reported as
   *unknown* rather than a false result.
-- The minimum check interval is 1 minute and the maximum is 1440 minutes (24 h).
+- The minimum check interval is 10 seconds and the maximum is 24 h.
 - Please respect each store's terms of service and do not set aggressive
   intervals.

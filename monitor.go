@@ -14,7 +14,14 @@ import (
 const (
 	// monitorTickInterval es el tick del planificador interno. Cada producto
 	// se comprueba cuando vence su propio intervalo.
-	monitorTickInterval = 30 * time.Second
+	monitorTickInterval = 5 * time.Second
+
+	// minInterval y maxInterval acotan el intervalo configurable por producto.
+	minInterval = 10 * time.Second
+	maxInterval = 24 * time.Hour
+
+	// defaultInterval se usa cuando un producto no tiene intervalo definido.
+	defaultInterval = 5 * time.Minute
 
 	// checkConcurrency limita cuántas comprobaciones simultáneas se lanzan.
 	checkConcurrency = 4
@@ -106,11 +113,7 @@ func (b *Bot) pickDueProducts(config *UserConfig, force bool) []checkJob {
 		if !force && now.Before(p.NextRun) {
 			continue
 		}
-		interval := p.IntervalMin
-		if interval <= 0 {
-			interval = 5
-		}
-		p.NextRun = now.Add(time.Duration(interval) * time.Minute)
+		p.NextRun = now.Add(p.Interval())
 		jobs = append(jobs, checkJob{index: i, product: *p})
 	}
 	return jobs
