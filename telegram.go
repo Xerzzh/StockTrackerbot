@@ -18,6 +18,9 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 	case strings.HasPrefix(cmd, "del_"):
 		b.handleDelete(config, strings.TrimPrefix(cmd, "del_"))
 		return
+	case strings.HasPrefix(cmd, "src_"):
+		b.handleSourceCallback(config, cmd)
+		return
 	}
 
 	switch cmd {
@@ -43,9 +46,9 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 		config.BotState = StateEditName
 		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo nombre del producto:")
 	case "ef_url":
-		config.BotState = StateEditURL
-		sendMessage(b.api, config.ChatID,
-			"✏️ Envía la nueva URL del producto (o varias separadas por espacios).\n\nTiendas soportadas: "+SupportedStoresList())
+		config.BotState = StateIdle
+		config.SourceSelection = nil
+		b.showSourceManager(config)
 	case "ef_interval":
 		config.BotState = StateEditInterval
 		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos o segundos (ej: 5, 2m, 30s):")
@@ -130,21 +133,32 @@ func (b *Bot) handleState(config *UserConfig, text string) {
 		config.BotState = StateIdle
 		b.showEditMenu(config)
 
-	case StateEditURL:
-		sources, err := parseSources(text)
-		if err != nil {
-			sendMessage(b.api, config.ChatID,
-				"⚠️ "+err.Error()+"\n\nTiendas soportadas: "+SupportedStoresList())
+	case StateEditURLAdd:
+		if !config.inRange() {
+			config.BotState = StateIdle
+			b.showMainMenu(config)
 			return
 		}
-		if config.inRange() {
-			config.Products[config.EditIndex].Sources = sources
-			config.Products[config.EditIndex].NextRun = time.Now()
-			saveProducts(config)
-			sendMessage(b.api, config.ChatID, "✅ URLs actualizadas.")
+		added, problems := addProductSources(config, text)
+		if added == 0 {
+			msg := "⚠️ No se añadió ninguna URL."
+			if len(problems) > 0 {
+				msg += "\n\n" + strings.Join(problems, "\n")
+			}
+			msg += "\n\nTiendas soportadas: " + SupportedStoresList()
+			sendMessage(b.api, config.ChatID, msg)
+			return
 		}
+		p := &config.Products[config.EditIndex]
+		p.NextRun = time.Now()
+		saveProducts(config)
 		config.BotState = StateIdle
-		b.showEditMenu(config)
+		msg := fmt.Sprintf("✅ %d URL(s) añadida(s).", added)
+		if len(problems) > 0 {
+			msg += "\n" + strings.Join(problems, "\n")
+		}
+		sendMessage(b.api, config.ChatID, msg)
+		b.showSourceManager(config)
 
 	case StateEditInterval:
 		interval, err := parseInterval(text)
@@ -206,8 +220,25 @@ func resetTemp(config *UserConfig) {
 // addTempSources añade a las fuentes temporales las URLs del texto. Devuelve
 // cuántas se añadieron y los problemas de las que no se pudieron detectar.
 func addTempSources(config *UserConfig, text string) (int, []string) {
-	seen := make(map[string]bool, len(config.TempSources))
-	for _, s := range config.TempSources {
+	sources, added, problems := appendDetectedSources(config.TempSources, text)
+	config.TempSources = sources
+	return added, problems
+}
+
+// addProductSources añade fuentes al producto en edición, evitando duplicados.
+func addProductSources(config *UserConfig, text string) (int, []string) {
+	p := &config.Products[config.EditIndex]
+	sources, added, problems := appendDetectedSources(p.Sources, text)
+	p.Sources = sources
+	return added, problems
+}
+
+// appendDetectedSources devuelve la lista con las URLs válidas y no
+// duplicadas del texto añadidas al final, cuántas se añadieron y los
+// problemas de las que no se pudieron detectar.
+func appendDetectedSources(dst []Source, text string) ([]Source, int, []string) {
+	seen := make(map[string]bool, len(dst))
+	for _, s := range dst {
 		seen[s.URL] = true
 	}
 	var added int
@@ -222,10 +253,10 @@ func addTempSources(config *UserConfig, text string) (int, []string) {
 			continue
 		}
 		seen[raw] = true
-		config.TempSources = append(config.TempSources, Source{URL: raw, Store: store.Key})
+		dst = append(dst, Source{URL: raw, Store: store.Key})
 		added++
 	}
-	return added, problems
+	return dst, added, problems
 }
 
 // parseSources convierte texto (una o varias URLs) en fuentes válidas.
@@ -293,6 +324,7 @@ func (b *Bot) finishAddURLs(config *UserConfig) {
 func (b *Bot) showMainMenu(config *UserConfig) {
 	config.BotState = StateIdle
 	config.EditIndex = -1
+	config.SourceSelection = nil
 
 	state := "🔴 Detenido"
 	if config.IsRunning {
@@ -394,6 +426,109 @@ func (b *Bot) showEditMenu(config *UserConfig) {
 	sendKeyboard(b.api, config.ChatID, formatProductDetail(p), keyboard)
 }
 
+// showSourceManager lista las URLs del producto en edición y ofrece botones
+// para marcarlas, eliminarlas o añadir nuevas.
+func (b *Bot) showSourceManager(config *UserConfig) {
+	if !config.inRange() {
+		b.showMainMenu(config)
+		return
+	}
+	if config.SourceSelection == nil {
+		config.SourceSelection = make(map[int]bool)
+	}
+	p := config.Products[config.EditIndex]
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i, s := range p.Sources {
+		mark := "⬜"
+		if config.SourceSelection[i] {
+			mark = "✅"
+		}
+		label := fmt.Sprintf("%s %d. %s", mark, i+1, StoreLabel(s.Store))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("src_toggle_%d", i)),
+		))
+	}
+	rows = append(rows,
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Añadir URLs", "src_add"),
+			tgbotapi.NewInlineKeyboardButtonData("🗑 Eliminar", "src_del"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Volver", "ef_back"),
+		),
+	)
+	sendKeyboard(b.api, config.ChatID,
+		formatSourceManager(p, config.SourceSelection), tgbotapi.NewInlineKeyboardMarkup(rows...))
+}
+
+// handleSourceCallback procesa las acciones del gestor de URLs.
+func (b *Bot) handleSourceCallback(config *UserConfig, cmd string) {
+	switch {
+	case cmd == "src_add":
+		if !config.inRange() {
+			b.showMainMenu(config)
+			return
+		}
+		config.BotState = StateEditURLAdd
+		sendMessage(b.api, config.ChatID,
+			"➕ Envía la URL o URLs que quieras añadir (separadas por espacios).\n\n"+
+				"Tiendas soportadas: "+SupportedStoresList())
+	case cmd == "src_del":
+		b.deleteSelectedSources(config)
+	case cmd == "ef_back":
+		config.SourceSelection = nil
+		config.BotState = StateIdle
+		b.showEditMenu(config)
+	case strings.HasPrefix(cmd, "src_toggle_"):
+		if !config.inRange() {
+			return
+		}
+		idx, err := parseIndex(strings.TrimPrefix(cmd, "src_toggle_"))
+		if err != nil || idx < 0 || idx >= len(config.Products[config.EditIndex].Sources) {
+			return
+		}
+		if config.SourceSelection == nil {
+			config.SourceSelection = make(map[int]bool)
+		}
+		config.SourceSelection[idx] = !config.SourceSelection[idx]
+		b.showSourceManager(config)
+	}
+}
+
+// deleteSelectedSources elimina las URLs marcadas, evitando dejar el producto
+// sin ninguna fuente.
+func (b *Bot) deleteSelectedSources(config *UserConfig) {
+	if !config.inRange() {
+		b.showMainMenu(config)
+		return
+	}
+	if len(config.SourceSelection) == 0 {
+		sendMessage(b.api, config.ChatID, "⚠️ No has seleccionado ninguna URL.")
+		return
+	}
+	p := &config.Products[config.EditIndex]
+	kept := make([]Source, 0, len(p.Sources))
+	var removed int
+	for i, s := range p.Sources {
+		if config.SourceSelection[i] {
+			removed++
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if len(kept) == 0 {
+		sendMessage(b.api, config.ChatID, "⚠️ Un producto debe tener al menos una URL. No se eliminó ninguna.")
+		return
+	}
+	p.Sources = kept
+	p.NextRun = time.Now()
+	config.SourceSelection = nil
+	saveProducts(config)
+	sendMessage(b.api, config.ChatID, fmt.Sprintf("🗑 %d URL(s) eliminada(s).", removed))
+	b.showSourceManager(config)
+}
+
 func (b *Bot) handleEditSelect(config *UserConfig, raw string) {
 	idx, err := parseIndex(raw)
 	if err != nil || idx < 0 || idx >= len(config.Products) {
@@ -401,6 +536,7 @@ func (b *Bot) handleEditSelect(config *UserConfig, raw string) {
 	}
 	config.EditIndex = idx
 	config.BotState = StateIdle
+	config.SourceSelection = nil
 	b.showEditMenu(config)
 }
 

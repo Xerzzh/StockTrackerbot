@@ -133,6 +133,9 @@ type UserConfig struct {
 	TempIntervalSec int
 
 	EditIndex int
+	// SourceSelection marca las fuentes seleccionadas en el gestor de URLs
+	// del producto que se está editando.
+	SourceSelection map[int]bool
 
 	// Mutex protege el estado del usuario.
 	Mutex sync.Mutex
@@ -158,7 +161,7 @@ const (
 
 	// Edición de campos de un producto existente.
 	StateEditName
-	StateEditURL
+	StateEditURLAdd
 	StateEditInterval
 
 	// Flujo admin.

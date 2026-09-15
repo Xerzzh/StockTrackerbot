@@ -110,6 +110,25 @@ func formatProductDetail(p Product) string {
 	return b.String()
 }
 
+// formatSourceManager genera el texto del gestor de URLs de un producto,
+// numerando las fuentes y marcando las seleccionadas.
+func formatSourceManager(p Product, selected map[int]bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "🔗 URLs de «%s» (%d):\n\n", p.Name, len(p.Sources))
+	if len(p.Sources) == 0 {
+		b.WriteString("(sin URLs)\n")
+	}
+	for i, s := range p.Sources {
+		mark := "⬜"
+		if selected[i] {
+			mark = "✅"
+		}
+		fmt.Fprintf(&b, "%s %d. %s\n%s\n", mark, i+1, StoreLabel(s.Store), s.URL)
+	}
+	b.WriteString("\nMarca las URLs que quieras eliminar y pulsa 🗑 Eliminar, o añade nuevas.")
+	return b.String()
+}
+
 // parseInterval valida y convierte el texto del intervalo. Acepta un número
 // (interpretado como minutos) o una duración con sufijo de segundos o minutos:
 // 30s, 30seg, 30segundos, 2m, 2min, 2minutos.

@@ -35,6 +35,24 @@ func TestParseSourcesRejectsUnsupported(t *testing.T) {
 	}
 }
 
+func TestAppendDetectedSources(t *testing.T) {
+	existing := []Source{{URL: "https://www.game.es/x", Store: "game"}}
+	sources, added, problems := appendDetectedSources(existing,
+		"https://www.game.es/x https://www.amazon.es/dp/B0 https://www.pccomponentes.com/y")
+	if added != 1 {
+		t.Fatalf("added = %d, want 1", added)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("problems = %d, want 1", len(problems))
+	}
+	if len(sources) != 2 {
+		t.Fatalf("sources = %d, want 2", len(sources))
+	}
+	if sources[1].Store != "amazon" {
+		t.Fatalf("store = %q, want amazon", sources[1].Store)
+	}
+}
+
 func TestAddTempSources(t *testing.T) {
 	config := &UserConfig{}
 	added, problems := addTempSources(config,
