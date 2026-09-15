@@ -170,12 +170,9 @@ func parseInterval(text string) (time.Duration, error) {
 	if n <= 0 {
 		return 0, fmt.Errorf("el intervalo debe ser mayor que 0")
 	}
-	d := time.Duration(n) * unit
-	if d < minInterval {
-		return 0, fmt.Errorf("el intervalo mínimo es %s", intervalLabel(minInterval))
+	const maxDuration = time.Duration(1<<63 - 1)
+	if time.Duration(n) > maxDuration/unit {
+		return 0, fmt.Errorf("el intervalo es demasiado grande")
 	}
-	if d > maxInterval {
-		return 0, fmt.Errorf("el intervalo máximo es %s", intervalLabel(maxInterval))
-	}
-	return d, nil
+	return time.Duration(n) * unit, nil
 }

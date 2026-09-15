@@ -58,6 +58,17 @@ type Source struct {
 	LastChecked time.Time `json:"last_checked"`
 	LastDetail  string    `json:"last_detail,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
+
+	// Estado de backoff en runtime (no se persiste). failures cuenta los
+	// fallos reintentables consecutivos y nextAttempt es el momento antes del
+	// cual no se debe volver a comprobar esta fuente.
+	failures    int
+	nextAttempt time.Time
+}
+
+// inBackoff indica si la fuente está en espera por backoff en el momento dado.
+func (s Source) inBackoff(now time.Time) bool {
+	return now.Before(s.nextAttempt)
 }
 
 // Product es un producto vigilado por un usuario. Puede tener una o varias

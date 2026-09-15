@@ -48,11 +48,17 @@ func TestParseInterval(t *testing.T) {
 	if _, err := parseInterval("abc"); err == nil {
 		t.Fatal("abc no es un intervalo válido")
 	}
-	if _, err := parseInterval("99999"); err == nil {
-		t.Fatal("99999 supera el máximo")
+	if got, err := parseInterval("99999"); err != nil || got != 99999*time.Minute {
+		t.Fatalf("parseInterval(99999) = %v, %v", got, err)
 	}
-	if _, err := parseInterval("5s"); err == nil {
-		t.Fatal("5s está por debajo del mínimo")
+	if _, err := parseInterval("9223372036854775807s"); err == nil {
+		t.Fatal("un intervalo que desborda time.Duration debería fallar")
+	}
+	if got, err := parseInterval("1s"); err != nil || got != time.Second {
+		t.Fatalf("parseInterval(1s) = %v, %v", got, err)
+	}
+	if got, err := parseInterval("5s"); err != nil || got != 5*time.Second {
+		t.Fatalf("parseInterval(5s) = %v, %v", got, err)
 	}
 	got, err := parseInterval(" 5 ")
 	if err != nil || got != 5*time.Minute {

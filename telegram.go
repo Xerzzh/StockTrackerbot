@@ -51,7 +51,7 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 		b.showSourceManager(config)
 	case "ef_interval":
 		config.BotState = StateEditInterval
-		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos o segundos (ej: 5, 2m, 30s):")
+		sendMessage(b.api, config.ChatID, "✏️ Envía el nuevo intervalo en minutos o segundos, sin mínimo (ej: 1s, 5s, 30s, 2m):")
 	case "admin_add":
 		if config.ChatID == adminChatID {
 			config.BotState = StateAdminAddUser
@@ -315,7 +315,7 @@ func (b *Bot) finishAddURLs(config *UserConfig) {
 	}
 	config.BotState = StateAddInterval
 	sendMessage(b.api, config.ChatID, fmt.Sprintf(
-		"3/3 · ¿Cada cuánto quieres comprobarlo? (minutos o segundos; ej: 5, 2m, 30s)\n\nTiendas: %s",
+		"3/3 · ¿Cada cuánto quieres comprobarlo? (minutos o segundos, sin mínimo; ej: 1s, 5s, 30s, 2m)\n\nTiendas: %s",
 		sourcesStoreLabel(config.TempSources)))
 }
 

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -87,9 +89,67 @@ func (f *Fetcher) do(req *http.Request) ([]byte, string, error) {
 		finalURL = resp.Request.URL.String()
 	}
 	if resp.StatusCode >= 400 {
-		return body, finalURL, fmt.Errorf("respuesta HTTP %d para %s", resp.StatusCode, finalURL)
+		return body, finalURL, &HTTPStatusError{
+			StatusCode: resp.StatusCode,
+			URL:        finalURL,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 	return body, finalURL, nil
+}
+
+// HTTPStatusError representa una respuesta HTTP con código de error. Incluye
+// el Retry-After indicado por el servidor, si lo hubiera.
+type HTTPStatusError struct {
+	StatusCode int
+	URL        string
+	RetryAfter time.Duration
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("respuesta HTTP %d para %s", e.StatusCode, e.URL)
+}
+
+// Retryable indica si el error conviene reintentarlo con backoff: límite de
+// peticiones (429) o errores del servidor (5xx).
+func (e *HTTPStatusError) Retryable() bool {
+	return e.StatusCode == http.StatusTooManyRequests || e.StatusCode >= 500
+}
+
+// parseRetryAfter interpreta la cabecera Retry-After, que puede ser un número
+// de segundos o una fecha HTTP.
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// retryDelay decide si un error merece backoff y, cuando el servidor lo indicó,
+// el retraso sugerido vía Retry-After. Los errores de red (timeouts, cortes)
+// también se reintentan con backoff calculado.
+func retryDelay(err error) (time.Duration, bool) {
+	var he *HTTPStatusError
+	if errors.As(err, &he) {
+		return he.RetryAfter, he.Retryable()
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return 0, true
+	}
+	return 0, false
 }
 
 func originOf(rawURL string) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -13,12 +14,9 @@ import (
 
 const (
 	// monitorTickInterval es el tick del planificador interno. Cada producto
-	// se comprueba cuando vence su propio intervalo.
-	monitorTickInterval = 5 * time.Second
-
-	// minInterval y maxInterval acotan el intervalo configurable por producto.
-	minInterval = 10 * time.Second
-	maxInterval = 24 * time.Hour
+	// se comprueba cuando vence su propio intervalo. Se usa 1s para permitir
+	// intervalos de un segundo sin límite inferior.
+	monitorTickInterval = 1 * time.Second
 
 	// defaultInterval se usa cuando un producto no tiene intervalo definido.
 	defaultInterval = 5 * time.Minute
@@ -28,7 +26,58 @@ const (
 
 	// checkTimeout es el tiempo máximo por comprobación individual.
 	checkTimeout = 45 * time.Second
+
+	// Parámetros de backoff ante respuestas 429/5xx y errores de red.
+	baseBackoff = 15 * time.Second
+	maxBackoff  = 15 * time.Minute
+
+	// jitterRatio es la variación aleatoria aplicada a intervalos y backoff
+	// (±20% en la programación, +0-20% en el backoff) para evitar patrones
+	// fijos fácilmente detectables.
+	jitterRatio = 0.2
 )
+
+// withJitter devuelve d con una variación aleatoria de ±jitterRatio.
+func withJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	spread := int64(float64(d) * jitterRatio)
+	if spread <= 0 {
+		return d
+	}
+	offset := rand.Int63n(2*spread+1) - spread
+	return d + time.Duration(offset)
+}
+
+// addJitter añade entre 0 y +jitterRatio a d. Se usa en el backoff para no
+// reintentar antes de lo indicado por el servidor.
+func addJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	spread := int64(float64(d) * jitterRatio)
+	if spread <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int63n(spread+1))
+}
+
+// backoffDuration calcula el retraso exponencial según los fallos consecutivos,
+// acotado por maxBackoff.
+func backoffDuration(failures int) time.Duration {
+	if failures < 1 {
+		return 0
+	}
+	d := baseBackoff
+	for i := 1; i < failures && d < maxBackoff; i++ {
+		d *= 2
+	}
+	if d > maxBackoff {
+		d = maxBackoff
+	}
+	return d
+}
 
 // monitor es la goroutine de monitoreo de un usuario. Se detiene al cerrar
 // config.StopChan.
@@ -57,6 +106,8 @@ func (b *Bot) monitor(config *UserConfig) {
 type checkJob struct {
 	index   int
 	product Product
+	// skip marca las fuentes que están en backoff y no deben comprobarse.
+	skip []bool
 }
 
 type checkOutcome struct {
@@ -82,6 +133,9 @@ func (b *Bot) checkUserProducts(config *UserConfig, force bool) []Product {
 	for i, job := range jobs {
 		outcomes[i] = make([]checkOutcome, len(job.product.Sources))
 		for j, src := range job.product.Sources {
+			if j < len(job.skip) && job.skip[j] {
+				continue
+			}
 			wg.Add(1)
 			go func(i, j int, src Source) {
 				defer wg.Done()
@@ -113,8 +167,21 @@ func (b *Bot) pickDueProducts(config *UserConfig, force bool) []checkJob {
 		if !force && now.Before(p.NextRun) {
 			continue
 		}
-		p.NextRun = now.Add(p.Interval())
-		jobs = append(jobs, checkJob{index: i, product: *p})
+
+		skip := make([]bool, len(p.Sources))
+		active := 0
+		for j := range p.Sources {
+			if !force && p.Sources[j].inBackoff(now) {
+				skip[j] = true
+				continue
+			}
+			active++
+		}
+		p.NextRun = now.Add(withJitter(p.Interval()))
+		if active == 0 {
+			continue
+		}
+		jobs = append(jobs, checkJob{index: i, product: *p, skip: skip})
 	}
 	return jobs
 }
@@ -138,6 +205,9 @@ func (b *Bot) applyOutcomes(config *UserConfig, jobs []checkJob, outcomes [][]ch
 		detail := ""
 		var lastErr string
 		for j := range p.Sources {
+			if j < len(job.skip) && job.skip[j] {
+				continue
+			}
 			src := &p.Sources[j]
 			src.LastChecked = now
 
@@ -151,9 +221,20 @@ func (b *Bot) applyOutcomes(config *UserConfig, jobs []checkJob, outcomes [][]ch
 				lastErr = src.LastError
 				log.Printf("[User %d] ❌ %s (%s): %v",
 					config.ChatID, p.Name, StoreLabel(src.Store), outcomes[i][j].err)
+				if d, ok := retryDelay(outcomes[i][j].err); ok {
+					src.failures++
+					if d <= 0 {
+						d = backoffDuration(src.failures)
+					}
+					src.nextAttempt = now.Add(addJitter(d))
+					log.Printf("[User %d] ⏳ %s (%s): pausa %s (fallo %d)",
+						config.ChatID, p.Name, StoreLabel(src.Store), intervalLabel(d), src.failures)
+				}
 				continue
 			}
 
+			src.failures = 0
+			src.nextAttempt = time.Time{}
 			src.LastError = ""
 			src.LastStatus = outcomes[i][j].result.Status
 			src.LastDetail = outcomes[i][j].result.Detail
