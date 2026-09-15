@@ -46,12 +46,6 @@ var Stores = []Store{
 		Check: checkMediaMarkt,
 	},
 	{
-		Key:   "fnac",
-		Label: "Fnac",
-		Match: func(host string) bool { return host == "fnac.es" || strings.HasSuffix(host, ".fnac.es") },
-		Check: checkFnac,
-	},
-	{
 		Key:   "carrefour",
 		Label: "Carrefour",
 		Match: func(host string) bool { return host == "carrefour.es" || strings.HasSuffix(host, ".carrefour.es") },
@@ -340,63 +334,6 @@ func checkMediaMarkt(ctx context.Context, f *Fetcher, rawURL string) (CheckResul
 	return checkByButtonText(body, mediaMarktInTexts, mediaMarktOutTexts)
 }
 
-// --- Fnac ---
-
-var (
-	fnacInTexts  = []string{"Añadir a la cesta"}
-	fnacOutTexts = []string{"No disponible en Fnac.es", "No disponible"}
-)
-
-func checkFnac(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
-	body, finalURL, err := f.GetHTML(ctx, rawURL, "es-ES,es;q=0.9,en;q=0.8")
-	if looksLikeCaptcha(body, finalURL) {
-		return CheckResult{Status: StatusUnknown, Detail: "captcha de Fnac"}, nil
-	}
-	if err != nil {
-		return CheckResult{}, err
-	}
-	if t, ok := fnacBuyButtonText(body); ok {
-		return CheckResult{Status: StatusInStock, Detail: t}, nil
-	}
-	if doc, perr := parseHTML(body); perr == nil {
-		if t, ok := containsAny(normalize(visibleText(doc)), fnacOutTexts); ok {
-			return CheckResult{Status: StatusOutOfStock, Detail: t}, nil
-		}
-	}
-	return CheckResult{Status: StatusUnknown}, nil
-}
-
-// fnacBuyButtonText busca el botón de compra por su identificador estable de
-// automatización (data-automation-id), que Fnac solo incluye cuando el
-// producto se puede añadir a la cesta.
-func fnacBuyButtonText(body []byte) (string, bool) {
-	doc, err := parseHTML(body)
-	if err != nil {
-		return "", false
-	}
-	label := findNode(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode &&
-			attrValue(n, "data-automation-id") == "product-buy-btn-label"
-	})
-	if label == nil || isDisabled(label) || isInsideDisabled(label) {
-		return "", false
-	}
-	if t, ok := containsAny(normalize(visibleText(label)), fnacInTexts); ok {
-		return t, true
-	}
-	return "", false
-}
-
-// isInsideDisabled indica si un nodo está dentro de un botón deshabilitado.
-func isInsideDisabled(n *html.Node) bool {
-	for p := n; p != nil; p = p.Parent {
-		if p.Type == html.ElementNode && (p.Data == "button" || p.Data == "input") && isDisabled(p) {
-			return true
-		}
-	}
-	return false
-}
-
 // --- Carrefour ---
 
 func checkCarrefour(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
@@ -407,12 +344,30 @@ func checkCarrefour(ctx context.Context, f *Fetcher, rawURL string) (CheckResult
 	if err != nil {
 		return CheckResult{}, err
 	}
-	// El botón "Añadir" aparece siempre (también sin stock): el error solo se
-	// muestra al pulsarlo. La disponibilidad fiable está en el JSON-LD.
-	if res, ok := checkJSONLDAvailability(body, rawURL); ok {
-		return res, nil
+	// El botón "Añadir" solo se sirve cuando el producto se puede comprar: si
+	// no aparece, está agotado. El JSON-LD de Carrefour puede seguir indicando
+	// InStock aunque no haya stock, así que no se usa.
+	if carrefourBuyButton(body) {
+		return CheckResult{Status: StatusInStock, Detail: "Añadir"}, nil
 	}
-	return CheckResult{Status: StatusUnknown, Detail: "sin datos de disponibilidad"}, nil
+	return CheckResult{Status: StatusOutOfStock, Detail: "sin botón de compra"}, nil
+}
+
+// carrefourBuyButton indica si la página incluye el botón de añadir a la cesta
+// activo.
+func carrefourBuyButton(body []byte) bool {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return false
+	}
+	return findNode(doc, func(n *html.Node) bool {
+		if n.Type != html.ElementNode || n.Data != "button" || isDisabled(n) {
+			return false
+		}
+		class := attrValue(n, "class")
+		return strings.Contains(class, "add-to-cart-button__full-button") ||
+			strings.Contains(class, "add-to-cart-button__button")
+	}) != nil
 }
 
 // --- El Corte Inglés ---

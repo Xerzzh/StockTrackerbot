@@ -15,8 +15,7 @@ choose how often it should be checked. No config files to edit by hand.
 | **GAME** (`game.es`) | Looks for `Añadir a la cesta`; `PRÓXIMAMENTE`, `Agotado` or `No disponible` mean out of stock. |
 | **Xtralife** (`xtralife.com`) | Uses Xtralife's public JSON API (`/public-api/v1/sku`) and maps its `disponibility` field: `sell` and `reservation` are available; `out_of_stock`, `reservation_not_opened`, `restock`, `archived`, etc. are not. |
 | **MediaMarkt** (`mediamarkt.es`) | Reads the product's `schema.org` JSON-LD (`InStock` / `OutOfStock` / `PreOrder`…), with a visible-text fallback. |
-| **Fnac** (`fnac.es`) | Looks for the stable `data-automation-id="product-buy-btn-label"` add-to-cart button; `No disponible en Fnac.es` means out of stock. DataDome CAPTCHA pages are reported as *unknown*. |
-| **Carrefour** (`carrefour.es`) | The *Añadir* button is shown even when there is no stock, so availability is read from the product's `schema.org` JSON-LD (`InStock` / `OutOfStock`). Cloudflare challenge pages are reported as *unknown*. |
+| **Carrefour** (`carrefour.es`) | Looks for the active *Añadir* button (`add-to-cart-button__full-button`): if it is not served, the product is out of stock. The page's JSON-LD is ignored because it can still report `InStock` when there is no stock. Cloudflare challenge pages are reported as *unknown*. |
 | **El Corte Inglés** (`elcorteingles.es`) | Reads the main buy button (`#add_to_cart_main_button` / `data-testid="pdp-add-to-cart"`): disabled or `AGOTADO` means out of stock. The site answers `410 Gone` for sold-out products but still serves the button, so the body is inspected in that case. |
 
 > Detection is based on visible text, structured data (JSON-LD) or public APIs,
@@ -178,6 +177,8 @@ it can be validated without network access.
   API or structured data cannot be scraped with plain HTTP.
 - Amazon may occasionally serve a CAPTCHA; those checks are reported as
   *unknown* rather than a false result.
+- Fnac (`fnac.es`) is **not** supported: it is protected by DataDome and answers
+  `403` (CAPTCHA or maintenance page) to plain HTTP clients.
 - The minimum check interval is 10 seconds and the maximum is 24 h.
 - Please respect each store's terms of service and do not set aggressive
   intervals.

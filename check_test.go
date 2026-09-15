@@ -175,33 +175,33 @@ func TestAmazonBuyButtonText(t *testing.T) {
 	}
 }
 
-func TestFnacBuyButtonText(t *testing.T) {
+func TestCarrefourBuyButton(t *testing.T) {
 	inStock := []byte(`<html><body>
-		<button type="button">
-			<span class="ff-button-label" data-automation-id="product-buy-btn-label">
-				Añadir a la cesta
-			</span>
-		</button>
+		<div class="add-to-cart-button">
+			<form action="/cloud-api/carts-api-form/v1/carts/current/items/7885150000"
+				method="POST" class="add-to-cart-button__container">
+				<button type="submit" class="add-to-cart-button__full-button add-to-cart-button__button">
+					Añadir
+				</button>
+			</form>
+		</div>
 	</body></html>`)
-	if text, ok := fnacBuyButtonText(inStock); !ok || text != "Añadir a la cesta" {
-		t.Fatalf("fnacBuyButtonText in-stock = %q/%v, want InStock", text, ok)
+	if !carrefourBuyButton(inStock) {
+		t.Fatal("se esperaba detectar el botón de añadir a la cesta")
 	}
 
 	outOfStock := []byte(`<html><body>
-		<div style="color: #a9a9a9;font-weight: bold;">No disponible en Fnac.es</div>
+		<div class="buybox__buy__buttons"></div>
 	</body></html>`)
-	if _, ok := fnacBuyButtonText(outOfStock); ok {
+	if carrefourBuyButton(outOfStock) {
 		t.Fatal("sin botón de compra no debe detectarse disponibilidad")
 	}
 
 	disabled := []byte(`<html><body>
-		<button type="button" disabled>
-			<span class="ff-button-label" data-automation-id="product-buy-btn-label">
-				Añadir a la cesta
-			</span>
-		</button>
+		<button type="submit" disabled
+			class="add-to-cart-button__full-button add-to-cart-button__button">Añadir</button>
 	</body></html>`)
-	if _, ok := fnacBuyButtonText(disabled); ok {
+	if carrefourBuyButton(disabled) {
 		t.Fatal("un botón deshabilitado no debe contar como disponible")
 	}
 }
@@ -238,25 +238,10 @@ func TestElCorteInglesAvailability(t *testing.T) {
 	}
 }
 
-func TestCheckJSONLDAvailabilityCarrefour(t *testing.T) {
-	body := []byte(`<html><head>
-		<script type="application/ld+json">
-		{"@context":"http://schema.org","@type":"Product","name":"Consola",
-		"offers":{"price":"519.00","@type":"Offer",
-		"url":"https://carrefour.es/consola/VC4A-34646617/p",
-		"priceCurrency":"EUR","availability":"https://schema.org/InStock"}}
-		</script>
-	</head><body></body></html>`)
-	r, ok := checkJSONLDAvailability(body, "https://www.carrefour.es/consola/VC4A-34646617/p")
-	if !ok || r.Status != StatusInStock {
-		t.Fatalf("checkJSONLDAvailability carrefour = %v/%v, want InStock", r.Status, ok)
-	}
-}
-
 func TestLooksLikeCaptcha(t *testing.T) {
 	dataDome := []byte(`<html><body><p id="cmsg">Please enable JS and disable any ad blocker</p>` +
 		`<script>var dd={'rt':'i','host':'geo.captcha-delivery.com'}</script></body></html>`)
-	if !looksLikeCaptcha(dataDome, "https://www.fnac.es/") {
+	if !looksLikeCaptcha(dataDome, "https://www.example.com/") {
 		t.Fatal("se esperaba detectar el captcha de DataDome")
 	}
 
@@ -267,8 +252,8 @@ func TestLooksLikeCaptcha(t *testing.T) {
 		t.Fatal("se esperaba detectar el challenge de Cloudflare")
 	}
 
-	normal := []byte(`<html><body><span data-automation-id="product-buy-btn-label">Añadir a la cesta</span></body></html>`)
-	if looksLikeCaptcha(normal, "https://www.fnac.es/") {
+	normal := []byte(`<html><body><span>Añadir a la cesta</span></body></html>`)
+	if looksLikeCaptcha(normal, "https://www.example.com/") {
 		t.Fatal("una página de producto normal no debe detectarse como captcha")
 	}
 }
