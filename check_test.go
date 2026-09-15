@@ -171,6 +171,46 @@ func TestXtralifeSKU(t *testing.T) {
 	}
 }
 
+func TestNintendoProductID(t *testing.T) {
+	cases := map[string]string{
+		"https://store.nintendo.com/es-es/nintendo-switch-2-edicin-40-aniversario-de-the-legend-of-zelda-P00211": "P00211",
+		"https://store.nintendo.com/es-es/mario-kart-world-70010000096802":                                       "70010000096802",
+		"https://store.nintendo.com/es-es/nintendo-switch-2-P00211/":                                             "P00211",
+		"https://store.nintendo.com/es-es/solo-slug":                                                             "slug",
+		"https://store.nintendo.com/":                                                                            "",
+	}
+	for rawURL, want := range cases {
+		if got := nintendoProductID(rawURL); got != want {
+			t.Errorf("nintendoProductID(%q) = %q, want %q", rawURL, got, want)
+		}
+	}
+}
+
+func TestNintendoAvailability(t *testing.T) {
+	cases := []struct {
+		orderable    bool
+		preorderable bool
+		avType       string
+		want         Status
+	}{
+		{orderable: true, avType: "InStock", want: StatusInStock},
+		{preorderable: true, avType: "OutOfStock", want: StatusInStock},
+		{avType: "InStock", want: StatusInStock},
+		{avType: "PreOrder", want: StatusInStock},
+		{avType: "OutOfStock", want: StatusOutOfStock},
+		{avType: "NotAvailable", want: StatusOutOfStock},
+		{avType: "vaya_estado", want: StatusUnknown},
+		{avType: "", want: StatusUnknown},
+	}
+	for _, c := range cases {
+		got, _ := nintendoAvailability(c.orderable, c.preorderable, c.avType)
+		if got != c.want {
+			t.Errorf("nintendoAvailability(%v, %v, %q) = %v, want %v",
+				c.orderable, c.preorderable, c.avType, got, c.want)
+		}
+	}
+}
+
 func TestAmazonBuyButtonText(t *testing.T) {
 	shortcut := []byte(`<html><body>
 		<button id="nav-assist-add-to-cart" class="nav-assistant-link-button">

@@ -17,12 +17,11 @@ choose how often it should be checked. No config files to edit by hand.
 | **MediaMarkt** (`mediamarkt.es`) | Reads the product's `schema.org` JSON-LD (`InStock` / `OutOfStock` / `PreOrder`…), with a visible-text fallback. |
 | **Carrefour** (`carrefour.es`) | Looks for the active *Añadir* button (`add-to-cart-button__full-button`): if it is not served, the product is out of stock. The page's JSON-LD is ignored because it can still report `InStock` when there is no stock. Cloudflare challenge pages are reported as *unknown*. |
 | **El Corte Inglés** (`elcorteingles.es`) | Reads the main buy button (`#add_to_cart_main_button` / `data-testid="pdp-add-to-cart"`): disabled or `AGOTADO` means out of stock. The site answers `410 Gone` for sold-out products but still serves the button, so the body is inspected in that case. |
+| **Nintendo Store** (`store.nintendo.com`) | Uses Nintendo's public catalog JSON API (`/api/catalog/product?id=…`) with the product id taken from the URL slug (e.g. `P00211` or `70010000096802`). Reads `inventory.orderable` / `inventory.preorderable` and falls back to `c_availabilityModel.type`. The web pages sit behind a Queue-it waiting room, but the API answers plain HTTP. |
 
 > Detection is based on visible text, structured data (JSON-LD) or public APIs,
 > **not** on CSS classes or element ids, which are often auto-generated and
-> change frequently. Nintendo Store is **not** supported because it sits behind
-> a JavaScript/Queue-it waiting room that cannot be bypassed without a headless
-> browser.
+> change frequently.
 
 ## How it works
 

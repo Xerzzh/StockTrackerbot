@@ -59,6 +59,12 @@ var Stores = []Store{
 		},
 		Check: checkElCorteIngles,
 	},
+	{
+		Key:   "nintendo",
+		Label: "Nintendo Store",
+		Match: func(host string) bool { return host == "store.nintendo.com" },
+		Check: checkNintendo,
+	},
 }
 
 // DetectStore devuelve la tienda asociada a una URL.
@@ -416,4 +422,49 @@ func elCorteInglesAvailability(body []byte) (CheckResult, bool) {
 		return CheckResult{Status: StatusInStock, Detail: t}, true
 	}
 	return CheckResult{Status: StatusUnknown}, false
+}
+
+// --- Nintendo Store ---
+
+const nintendoAPIBase = "https://store.nintendo.com/api/catalog/product"
+
+// checkNintendo consulta la API pública de catálogo de Nintendo Store con el
+// identificador extraído de la URL. La web está detrás de un Queue-it que no
+// se puede superar con HTTP simple, pero la API responde directamente.
+func checkNintendo(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
+	id := nintendoProductID(rawURL)
+	if id == "" {
+		return CheckResult{}, fmt.Errorf("no se pudo extraer el ID del producto de la URL de Nintendo Store")
+	}
+
+	api := nintendoAPIBase + "?id=" + url.QueryEscape(id)
+	body, _, err := f.GetJSON(ctx, api, "https://store.nintendo.com/", "es-ES,es;q=0.9,en;q=0.8")
+	if err != nil {
+		return CheckResult{}, err
+	}
+
+	var resp struct {
+		Data *struct {
+			Inventory struct {
+				Orderable    bool `json:"orderable"`
+				Preorderable bool `json:"preorderable"`
+			} `json:"inventory"`
+			Availability struct {
+				Type string `json:"type"`
+			} `json:"c_availabilityModel"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return CheckResult{}, fmt.Errorf("respuesta no válida de la API de Nintendo Store: %w", err)
+	}
+	if resp.Data == nil {
+		return CheckResult{Status: StatusUnknown, Detail: "producto no encontrado"}, nil
+	}
+
+	st, detail := nintendoAvailability(
+		resp.Data.Inventory.Orderable,
+		resp.Data.Inventory.Preorderable,
+		resp.Data.Availability.Type,
+	)
+	return CheckResult{Status: st, Detail: detail}, nil
 }

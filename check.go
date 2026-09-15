@@ -287,3 +287,46 @@ func xtralifeSKU(rawURL string) string {
 	}
 	return last
 }
+
+// --- Nintendo Store ---
+
+// nintendoProductID extrae el identificador de producto del slug de la URL.
+// Nintendo añade el id como último token tras un guion, y puede ser un SKU
+// alfanumérico (P00211) o un id numérico de la eShop (70010000096802).
+func nintendoProductID(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	slug := parts[len(parts)-1]
+	if slug == "" {
+		return ""
+	}
+	if i := strings.LastIndex(slug, "-"); i >= 0 {
+		slug = slug[i+1:]
+	}
+	return slug
+}
+
+// nintendoAvailability traduce la respuesta de la API de producto de Nintendo
+// Store. "inventory" es la señal directa (orderable/preorderable); el tipo de
+// "c_availabilityModel" sirve de respaldo y como detalle legible.
+func nintendoAvailability(orderable, preorderable bool, availabilityType string) (Status, string) {
+	switch {
+	case orderable:
+		return StatusInStock, "orderable"
+	case preorderable:
+		return StatusInStock, "preorderable"
+	}
+	switch strings.ToLower(strings.TrimSpace(availabilityType)) {
+	case "instock", "available", "preorder", "backorder", "onlineonly":
+		return StatusInStock, availabilityType
+	case "outofstock", "soldout", "notavailable", "unavailable", "comingsoon", "discontinued":
+		return StatusOutOfStock, availabilityType
+	}
+	return StatusUnknown, availabilityType
+}
