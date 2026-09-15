@@ -45,6 +45,26 @@ var Stores = []Store{
 		Match: func(host string) bool { return strings.Contains(host, "mediamarkt.") },
 		Check: checkMediaMarkt,
 	},
+	{
+		Key:   "fnac",
+		Label: "Fnac",
+		Match: func(host string) bool { return host == "fnac.es" || strings.HasSuffix(host, ".fnac.es") },
+		Check: checkFnac,
+	},
+	{
+		Key:   "carrefour",
+		Label: "Carrefour",
+		Match: func(host string) bool { return host == "carrefour.es" || strings.HasSuffix(host, ".carrefour.es") },
+		Check: checkCarrefour,
+	},
+	{
+		Key:   "elcorteingles",
+		Label: "El Corte Inglés",
+		Match: func(host string) bool {
+			return host == "elcorteingles.es" || strings.HasSuffix(host, ".elcorteingles.es")
+		},
+		Check: checkElCorteIngles,
+	},
 }
 
 // DetectStore devuelve la tienda asociada a una URL.
@@ -318,4 +338,127 @@ func checkMediaMarkt(ctx context.Context, f *Fetcher, rawURL string) (CheckResul
 		return res, nil
 	}
 	return checkByButtonText(body, mediaMarktInTexts, mediaMarktOutTexts)
+}
+
+// --- Fnac ---
+
+var (
+	fnacInTexts  = []string{"Añadir a la cesta"}
+	fnacOutTexts = []string{"No disponible en Fnac.es", "No disponible"}
+)
+
+func checkFnac(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
+	body, finalURL, err := f.GetHTML(ctx, rawURL, "es-ES,es;q=0.9,en;q=0.8")
+	if looksLikeCaptcha(body, finalURL) {
+		return CheckResult{Status: StatusUnknown, Detail: "captcha de Fnac"}, nil
+	}
+	if err != nil {
+		return CheckResult{}, err
+	}
+	if t, ok := fnacBuyButtonText(body); ok {
+		return CheckResult{Status: StatusInStock, Detail: t}, nil
+	}
+	if doc, perr := parseHTML(body); perr == nil {
+		if t, ok := containsAny(normalize(visibleText(doc)), fnacOutTexts); ok {
+			return CheckResult{Status: StatusOutOfStock, Detail: t}, nil
+		}
+	}
+	return CheckResult{Status: StatusUnknown}, nil
+}
+
+// fnacBuyButtonText busca el botón de compra por su identificador estable de
+// automatización (data-automation-id), que Fnac solo incluye cuando el
+// producto se puede añadir a la cesta.
+func fnacBuyButtonText(body []byte) (string, bool) {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return "", false
+	}
+	label := findNode(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode &&
+			attrValue(n, "data-automation-id") == "product-buy-btn-label"
+	})
+	if label == nil || isDisabled(label) || isInsideDisabled(label) {
+		return "", false
+	}
+	if t, ok := containsAny(normalize(visibleText(label)), fnacInTexts); ok {
+		return t, true
+	}
+	return "", false
+}
+
+// isInsideDisabled indica si un nodo está dentro de un botón deshabilitado.
+func isInsideDisabled(n *html.Node) bool {
+	for p := n; p != nil; p = p.Parent {
+		if p.Type == html.ElementNode && (p.Data == "button" || p.Data == "input") && isDisabled(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// --- Carrefour ---
+
+func checkCarrefour(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
+	body, finalURL, err := f.GetHTML(ctx, rawURL, "es-ES,es;q=0.9,en;q=0.8")
+	if looksLikeCaptcha(body, finalURL) {
+		return CheckResult{Status: StatusUnknown, Detail: "captcha de Carrefour"}, nil
+	}
+	if err != nil {
+		return CheckResult{}, err
+	}
+	// El botón "Añadir" aparece siempre (también sin stock): el error solo se
+	// muestra al pulsarlo. La disponibilidad fiable está en el JSON-LD.
+	if res, ok := checkJSONLDAvailability(body, rawURL); ok {
+		return res, nil
+	}
+	return CheckResult{Status: StatusUnknown, Detail: "sin datos de disponibilidad"}, nil
+}
+
+// --- El Corte Inglés ---
+
+var elCorteInglesInTexts = []string{"Añadir a la cesta"}
+
+func checkElCorteIngles(ctx context.Context, f *Fetcher, rawURL string) (CheckResult, error) {
+	body, _, err := f.GetHTML(ctx, rawURL, "es-ES,es;q=0.9,en;q=0.8")
+	// El Corte Inglés responde 410 Gone para productos agotados, pero el HTML
+	// servido sigue incluyendo el botón, así que se analiza el cuerpo aunque
+	// la respuesta tenga un código de error.
+	if res, ok := elCorteInglesAvailability(body); ok {
+		return res, nil
+	}
+	if err != nil {
+		return CheckResult{}, err
+	}
+	return CheckResult{Status: StatusUnknown}, nil
+}
+
+// elCorteInglesAvailability lee el botón principal de compra (id/testid
+// estables). Un botón deshabilitado o con el texto "AGOTADO" significa que no
+// hay stock.
+func elCorteInglesAvailability(body []byte) (CheckResult, bool) {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return CheckResult{}, false
+	}
+	btn := findNode(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode &&
+			(attrValue(n, "data-testid") == "pdp-add-to-cart" ||
+				attrValue(n, "id") == "add_to_cart_main_button")
+	})
+	if btn == nil {
+		return CheckResult{}, false
+	}
+	text := normalize(visibleText(btn))
+	if isDisabled(btn) || strings.Contains(text, "agotado") {
+		detail := strings.TrimSpace(visibleText(btn))
+		if detail == "" {
+			detail = "AGOTADO"
+		}
+		return CheckResult{Status: StatusOutOfStock, Detail: detail}, true
+	}
+	if t, ok := containsAny(text, elCorteInglesInTexts); ok {
+		return CheckResult{Status: StatusInStock, Detail: t}, true
+	}
+	return CheckResult{Status: StatusUnknown}, false
 }

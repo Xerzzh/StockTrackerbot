@@ -15,6 +15,9 @@ choose how often it should be checked. No config files to edit by hand.
 | **GAME** (`game.es`) | Looks for `Añadir a la cesta`; `PRÓXIMAMENTE`, `Agotado` or `No disponible` mean out of stock. |
 | **Xtralife** (`xtralife.com`) | Uses Xtralife's public JSON API (`/public-api/v1/sku`) and maps its `disponibility` field: `sell` and `reservation` are available; `out_of_stock`, `reservation_not_opened`, `restock`, `archived`, etc. are not. |
 | **MediaMarkt** (`mediamarkt.es`) | Reads the product's `schema.org` JSON-LD (`InStock` / `OutOfStock` / `PreOrder`…), with a visible-text fallback. |
+| **Fnac** (`fnac.es`) | Looks for the stable `data-automation-id="product-buy-btn-label"` add-to-cart button; `No disponible en Fnac.es` means out of stock. DataDome CAPTCHA pages are reported as *unknown*. |
+| **Carrefour** (`carrefour.es`) | The *Añadir* button is shown even when there is no stock, so availability is read from the product's `schema.org` JSON-LD (`InStock` / `OutOfStock`). Cloudflare challenge pages are reported as *unknown*. |
+| **El Corte Inglés** (`elcorteingles.es`) | Reads the main buy button (`#add_to_cart_main_button` / `data-testid="pdp-add-to-cart"`): disabled or `AGOTADO` means out of stock. The site answers `410 Gone` for sold-out products but still serves the button, so the body is inspected in that case. |
 
 > Detection is based on visible text, structured data (JSON-LD) or public APIs,
 > **not** on CSS classes or element ids, which are often auto-generated and

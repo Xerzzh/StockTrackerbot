@@ -84,6 +84,20 @@ func collectActionTexts(n *html.Node, texts *[]string) {
 	}
 }
 
+// findNode devuelve el primer nodo (en preorden) que cumple el predicado, o
+// nil si ninguno lo cumple.
+func findNode(n *html.Node, pred func(*html.Node) bool) *html.Node {
+	if pred(n) {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findNode(c, pred); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
 // attrValue devuelve el valor de un atributo o "" si no existe.
 func attrValue(n *html.Node, key string) string {
 	for _, a := range n.Attr {

@@ -4,14 +4,17 @@ import "testing"
 
 func TestDetectStore(t *testing.T) {
 	cases := map[string]string{
-		"https://www.game.es/nintendo-switch-2-267689":               "game",
-		"https://www.xtralife.com/producto/zelda/113185":             "xtralife",
-		"https://www.amazon.es/dp/B0F2TN43GH":                        "amazon",
-		"https://www.amazon.de/dp/B0F2TN43GH":                        "amazon",
-		"https://www.amazon.fr/dp/B0F2TN43GH":                        "amazon",
-		"https://www.amazon.it/dp/B0F2TN43GH":                        "amazon",
-		"https://www.amazon.co.uk/dp/B0F2TN43GH":                     "amazon",
-		"https://www.mediamarkt.es/es/product/_consola-1674231.html": "mediamarkt",
+		"https://www.game.es/nintendo-switch-2-267689":                           "game",
+		"https://www.xtralife.com/producto/zelda/113185":                         "xtralife",
+		"https://www.amazon.es/dp/B0F2TN43GH":                                    "amazon",
+		"https://www.amazon.de/dp/B0F2TN43GH":                                    "amazon",
+		"https://www.amazon.fr/dp/B0F2TN43GH":                                    "amazon",
+		"https://www.amazon.it/dp/B0F2TN43GH":                                    "amazon",
+		"https://www.amazon.co.uk/dp/B0F2TN43GH":                                 "amazon",
+		"https://www.mediamarkt.es/es/product/_consola-1674231.html":             "mediamarkt",
+		"https://www.fnac.es/Consola-Nintendo-Switch-2/a13481099":                "fnac",
+		"https://www.carrefour.es/consola-nintendo-switch-2/VC4A-34646617/p":     "carrefour",
+		"https://www.elcorteingles.es/videojuegos/A202302815-nintendo-switch-2/": "elcorteingles",
 	}
 	for rawURL, want := range cases {
 		store, err := DetectStore(rawURL)

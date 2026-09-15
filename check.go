@@ -69,6 +69,38 @@ func checkByButtonText(body []byte, inTexts, outTexts []string) (CheckResult, er
 	return CheckResult{Status: StatusUnknown}, nil
 }
 
+// --- Detección de captchas ---
+
+// captchaMarkers son fragmentos que delatan páginas de verificación anti-bots
+// (DataDome, Cloudflare, PerimeterX, hCaptcha, reCAPTCHA...).
+var captchaMarkers = []string{
+	"captcha-delivery.com",
+	"datadome",
+	"geo.captcha-delivery",
+	"px-captcha",
+	"perimeterx",
+	"hcaptcha",
+	"g-recaptcha",
+	"cf-chl",
+	"_cf_chl",
+	"challenges.cloudflare.com",
+	"just a moment",
+	"turnstile",
+	"please enable js and disable any ad blocker",
+}
+
+// looksLikeCaptcha indica si el cuerpo (o la URL final) corresponde a una
+// página de captcha/verificación en lugar de la página del producto.
+func looksLikeCaptcha(body []byte, finalURL string) bool {
+	haystack := strings.ToLower(string(body) + " " + finalURL)
+	for _, m := range captchaMarkers {
+		if strings.Contains(haystack, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Detección vía datos estructurados (schema.org) ---
 
 var ldScriptRe = regexp.MustCompile(`(?is)<script[^>]*type=["']application/ld\+json["'][^>]*>(.*?)</script>`)
