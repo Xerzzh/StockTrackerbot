@@ -95,6 +95,34 @@ func TestCheckJSONLDAvailabilityInStock(t *testing.T) {
 	}
 }
 
+func TestCheckJSONLDAvailabilityProductGroupPrefersGroupOffer(t *testing.T) {
+	// MediaMarkt declara la oferta del producto visible en el ProductGroup
+	// (OutOfStock) y repite las variantes en hasVariant. Aunque la variante que
+	// coincide con la URL diga InStock, debe mandar la oferta del grupo.
+	body := []byte(`<script type="application/ld+json">
+		{"@type":"BuyAction","object":{
+			"@type":"ProductGroup",
+			"url":"https://www.mediamarkt.es/es/product/_zelda-1674231.html",
+			"offers":{"@type":"Offer","availability":"https://schema.org/OutOfStock",
+				"url":"https://www.mediamarkt.es/es/product/_zelda-1674231.html"},
+			"hasVariant":[
+				{"@type":"Product","sku":"1671189",
+				 "offers":{"@type":"Offer","availability":"https://schema.org/InStock",
+				  "url":"/es/product/_estandar-1671189.html"}},
+				{"@type":"Product","sku":"1674231",
+				 "offers":{"@type":"Offer","availability":"https://schema.org/InStock",
+				  "url":"/es/product/_zelda-1674231.html"}}
+			]}}
+	</script>`)
+	r, ok := checkJSONLDAvailability(body, "https://www.mediamarkt.es/es/product/_zelda-1674231.html")
+	if !ok {
+		t.Fatal("no se encontró disponibilidad en el JSON-LD")
+	}
+	if r.Status != StatusOutOfStock {
+		t.Fatalf("status = %v, want OutOfStock (debe mandar la oferta del ProductGroup)", r.Status)
+	}
+}
+
 func TestAvailabilityFromSchema(t *testing.T) {
 	cases := map[string]Status{
 		"https://schema.org/InStock":      StatusInStock,

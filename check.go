@@ -112,7 +112,9 @@ type productAvailability struct {
 
 // checkJSONLDAvailability busca un Product en los bloques JSON-LD y devuelve
 // su disponibilidad. Si hay varios productos, prioriza el que coincide con la
-// URL solicitada.
+// URL solicitada. Los ProductGroup (con hasVariant) se recogen antes que sus
+// variantes, de modo que para la URL consultada manda la oferta del grupo y no
+// la disponibilidad individual de una variante.
 func checkJSONLDAvailability(body []byte, productURL string) (CheckResult, bool) {
 	var products []productAvailability
 	for _, m := range ldScriptRe.FindAllSubmatch(body, -1) {
@@ -172,13 +174,17 @@ func collectProductAvailability(v interface{}, out *[]productAvailability) {
 	}
 }
 
+// isProductType indica si un @type de schema.org corresponde a un producto
+// (Product) o a un grupo de variantes (ProductGroup). Se incluye ProductGroup
+// porque MediaMarkt declara la oferta del producto visible a nivel de grupo,
+// mientras que hasVariant puede contener disponibilidades desactualizadas.
 func isProductType(v interface{}) bool {
 	switch t := v.(type) {
 	case string:
-		return strings.EqualFold(t, "Product")
+		return strings.EqualFold(t, "Product") || strings.EqualFold(t, "ProductGroup")
 	case []interface{}:
 		for _, e := range t {
-			if s, ok := e.(string); ok && strings.EqualFold(s, "Product") {
+			if s, ok := e.(string); ok && (strings.EqualFold(s, "Product") || strings.EqualFold(s, "ProductGroup")) {
 				return true
 			}
 		}

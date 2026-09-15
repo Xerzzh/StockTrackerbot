@@ -18,7 +18,7 @@ func (b *Bot) handleCommand(config *UserConfig, cmd string) {
 	case strings.HasPrefix(cmd, "del_"):
 		b.handleDelete(config, strings.TrimPrefix(cmd, "del_"))
 		return
-	case strings.HasPrefix(cmd, "src_"):
+	case strings.HasPrefix(cmd, "src_"), cmd == "ef_back":
 		b.handleSourceCallback(config, cmd)
 		return
 	}
